@@ -238,6 +238,23 @@ describe("worker MCP handler", () => {
     expect(names).not.toContain("ynab_delete_transaction");
   });
 
+  it("refuses a write tool called by name in read-only mode, without contacting YNAB", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const writeTools = tools.filter((tool) => tool.writes).map((tool) => tool.module.name);
+    expect(writeTools.length).toBeGreaterThan(0);
+
+    for (const name of writeTools) {
+      const response = await call(
+        { jsonrpc: "2.0", id: 8, method: "tools/call", params: { name, arguments: { planId: "plan", transactionId: "t1" } } },
+        { YNAB_READ_ONLY: "true" },
+      );
+      const result = await readResult(response);
+      expect(result.result, name).toBeUndefined();
+      expect(result.error?.message, name).toBe(`Tool ${name} not found`);
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("serves the auto-budget tools only with their database bound, read-only mode included", async () => {
     const autobudget = ["ynab_autobudget_status", "ynab_autobudget_plan", "ynab_autobudget_pause"];
     const names = async (overrides: Partial<WorkerEnv>) =>
