@@ -54,6 +54,7 @@ Environment variables:
 | --- | --- | --- |
 | `YNAB_API_TOKEN` | yes | Personal Access Token used for every API call |
 | `YNAB_PLAN_ID` | no | Default plan, so tools can omit `planId`. Find it with `ynab_list_plans`. |
+| `YNAB_LOCK_PLAN` | no | Set to `"true"` (case-insensitive; surrounding whitespace is ignored) to serve only the `YNAB_PLAN_ID` plan: a tool call naming any other plan is refused before it reaches YNAB, `ynab_list_plans` lists only that plan, and errors name no other plan. With `YNAB_PLAN_ID` unset, or set to YNAB's `last-used` or `default` alias, every plan is refused. |
 | `TYPESAFE_API_KEY` | no | Operator-owned TypeSafe credential. Required, but not sufficient, to enable category suggestions. |
 | `YNAB_AI_CATEGORIZATION` | no | Set to `"true"` together with `TYPESAFE_API_KEY` to expose the opt-in suggestion tool. |
 | `YNAB_AI_TYPICAL_PAYEES` | no | Set to `"true"` to send each category's most frequent payee names from the last 12 months with each model request. Off by default because it discloses aggregated payee history to TypeSafe. |
@@ -195,7 +196,8 @@ server-wide YNAB token, so anyone admitted through the sign-in reaches the
 deployer's YNAB account, money, and every plan available to that token—not
 their own YNAB account.
 `ynab_list_plans` lists all of those plans, and a caller-supplied `planId`
-overrides the optional `YNAB_PLAN_ID` default. This matters because the tool
+overrides the optional `YNAB_PLAN_ID` default, unless `YNAB_LOCK_PLAN` pins
+the server to that one plan. This matters because the tool
 set can create and delete transactions—an unauthenticated endpoint would grant
 access to those plans to anyone who found the URL. Each sign-in admits one
 account:
@@ -231,7 +233,8 @@ list, which is worth considering for a connector you will mostly use on a phone.
 ## Tools
 
 Plan-scoped tools take an optional `planId` that falls back to
-`YNAB_PLAN_ID`. Optional tool inputs may be `null`; the server treats `null`
+`YNAB_PLAN_ID`; with `YNAB_LOCK_PLAN` on, a `planId` for any other plan is
+refused. Optional tool inputs may be `null`; the server treats `null`
 the same as omitting that input. All monetary values — in both directions — are
 plain currency amounts, never YNAB's milliunits. Reported amounts use the
 plan currency's precision (three decimals for currencies such as the Kuwaiti

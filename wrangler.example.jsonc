@@ -42,6 +42,10 @@
 		// "true" (any case) drops every tool that writes to YNAB from tools/list;
 		// any other value, including "1" or "yes", leaves them enabled.
 		"YNAB_READ_ONLY": "true",
+		// "true" (any case) serves only the plan in the YNAB_PLAN_ID secret and
+		// refuses every other plan; with YNAB_PLAN_ID unset, every plan is
+		// refused. See DEPLOY.md#locking-to-one-plan.
+		"YNAB_LOCK_PLAN": "true",
 		// Optional: exact OAuth redirect URIs (comma- or space-separated) that MCP
 		// clients may receive grants at; loopback redirects are always allowed.
 		// Unset allows any client, each still needing approval at sign-in.

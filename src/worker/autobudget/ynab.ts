@@ -52,13 +52,14 @@ export const planPath = (planId: string) => `/plans/${encodeURIComponent(planId)
 
 /**
  * Turns a 404 on the configured plan into an explanation naming the plans the
- * token can see. Returns null when the plan is visible (the 404 was something
- * else) or the plan list cannot be read.
+ * token can see, unless `listVisible` is false (a locked server). Returns null
+ * when the plan is visible (the 404 was something else) or the plan list
+ * cannot be read.
  */
-export async function explainMissingPlan(reader: YnabReader, planId: string): Promise<string | null> {
+export async function explainMissingPlan(reader: YnabReader, planId: string, listVisible = true): Promise<string | null> {
   try {
     const data = await reader.get<{ plans: Array<{ id: string; name: string }> }>("/plans");
-    return describeMissingPlan(planId, data.plans);
+    return describeMissingPlan(planId, data.plans, { listVisible });
   } catch {
     return null;
   }
