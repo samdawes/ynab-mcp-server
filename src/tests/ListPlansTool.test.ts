@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi, Mock } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi, Mock } from 'vitest';
 import * as ynab from 'ynab';
 import * as ListPlansTool from '../tools/ListPlansTool';
 
@@ -23,6 +23,15 @@ describe('ListPlansTool', () => {
     (ynab.API as any).mockImplementation(() => mockApi);
 
     process.env.YNAB_API_TOKEN = 'test-token';
+    delete process.env.YNAB_LOCK_PLAN;
+    delete process.env.YNAB_PLAN_ID;
+    delete process.env.YNAB_BUDGET_ID;
+  });
+
+  afterEach(() => {
+    delete process.env.YNAB_LOCK_PLAN;
+    delete process.env.YNAB_PLAN_ID;
+    delete process.env.YNAB_BUDGET_ID;
   });
 
   describe('execute', () => {
@@ -246,6 +255,52 @@ describe('ListPlansTool', () => {
       };
 
       expect(result).toEqual(expectedResult);
+    });
+  });
+
+  describe('with YNAB_LOCK_PLAN', () => {
+    const plans = [
+      { id: 'aaaaaaaa-0000-4000-8000-000000000001', name: 'My Budget' },
+      { id: 'bbbbbbbb-0000-4000-8000-000000000002', name: '2026' },
+      { id: 'cccccccc-0000-4000-8000-000000000003', name: "Samuel's Plan" },
+    ];
+
+    beforeEach(() => {
+      process.env.YNAB_LOCK_PLAN = 'true';
+      mockApi.plans.getPlans.mockResolvedValue({ data: { plans } });
+    });
+
+    it('lists only the configured plan', async () => {
+      process.env.YNAB_PLAN_ID = 'BBBBBBBB-0000-4000-8000-000000000002';
+
+      const result = await ListPlansTool.execute({}, mockApi as any);
+
+      expect(result.isError).toBeUndefined();
+      expect(JSON.parse(result.content[0].text)).toEqual([
+        { id: 'bbbbbbbb-0000-4000-8000-000000000002', name: '2026' },
+      ]);
+    });
+
+    it('names no plan when the token cannot see the configured one', async () => {
+      process.env.YNAB_PLAN_ID = 'dddddddd-0000-4000-8000-000000000004';
+
+      const result = await ListPlansTool.execute({}, mockApi as any);
+
+      expect(result.isError).toBe(true);
+      const { error } = JSON.parse(result.content[0].text);
+      expect(error).toContain('cannot access that plan');
+      for (const plan of plans) {
+        expect(result.content[0].text).not.toContain(plan.id);
+        expect(result.content[0].text).not.toContain(plan.name);
+      }
+    });
+
+    it('lists nothing when no plan is configured', async () => {
+      const result = await ListPlansTool.execute({}, mockApi as any);
+
+      expect(result.isError).toBe(true);
+      expect(JSON.parse(result.content[0].text).error).toContain('YNAB_PLAN_ID is not set');
+      for (const plan of plans) expect(result.content[0].text).not.toContain(plan.name);
     });
   });
 

@@ -26,7 +26,7 @@ import * as DetectRecurringTool from "./tools/DetectRecurringTool.js";
 import * as SuggestCategoriesTool from "./tools/SuggestCategoriesTool.js";
 import * as ApplyCategorySuggestionsTool from "./tools/ApplyCategorySuggestionsTool.js";
 import { getErrorMessage, toolError } from "./tools/errorUtils.js";
-import { configuredPlanId, describeMissingPlan } from "./tools/planId.js";
+import { configuredPlanId, describeMissingPlan, isPlanLocked } from "./tools/planId.js";
 
 /** A tool module as exported by every file in src/tools. */
 interface ToolModule {
@@ -201,7 +201,8 @@ async function explainDefaultPlanFailure(module: ToolModule, input: unknown, api
   planChecks.set(api, checks);
   let check = checks.get(planId);
   if (!check) {
-    check = (async () => describeMissingPlan(planId, (await api.plans.getPlans()).data.plans))();
+    const listVisible = !isPlanLocked();
+    check = (async () => describeMissingPlan(planId, (await api.plans.getPlans()).data.plans, { listVisible }))();
     checks.set(planId, check);
   }
   try {

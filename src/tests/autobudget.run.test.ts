@@ -278,6 +278,22 @@ describe("runAutobudget", () => {
     expect((await status(env, NIGHT)).lastRun).toMatchObject({ outcome: "plan_not_visible" });
   });
 
+  it("names no other plan in the explanation or the alert when the server is locked", async () => {
+    const db = createTestD1();
+    const apis = scenario();
+    const env = makeEnv(db, { YNAB_PLAN_ID: "22222222-2222-4222-8222-222222222222", YNAB_LOCK_PLAN: "true" });
+
+    const outcome = await runAutobudget(env, { fetch: apis.fetch, now: NIGHT });
+    expect(outcome).toMatchObject({ ran: true, outcome: "plan_not_visible" });
+    const error = (outcome as { error: string }).error;
+    expect(error).toContain("is not one of the plans this YNAB token can access");
+    expect(error).not.toContain("Household");
+    expect(error).not.toContain(PLAN_ID);
+    expect(pushParams(pushes(apis.requests)[0]).get("message")).not.toContain("Household");
+
+    await expect(dryRun(env, { fetch: apis.fetch, now: NIGHT })).rejects.toThrow(/^(?!.*Household).*is not one of the plans/);
+  });
+
   it("clears plan visibility recovery before transaction persistence", async () => {
     const db = createTestD1();
     const apis = scenario();

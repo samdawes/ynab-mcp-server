@@ -1,7 +1,7 @@
 import type * as ynab from "ynab";
 
 import { getErrorMessage } from "../../tools/errorUtils.js";
-import { configuredPlanId } from "../../tools/planId.js";
+import { configuredPlanId, isPlanLocked } from "../../tools/planId.js";
 import { getEligibleCategories } from "../../tools/SuggestCategoriesTool.js";
 import type { WorkerEnv } from "../env.js";
 import { localDateParts } from "../nag.js";
@@ -324,7 +324,7 @@ export async function runAutobudget(env: WorkerEnv, options: RunOptions = {}): P
       let outcome: "plan_not_visible" | "rate_limited" | "error" = "error";
       let message = getErrorMessage(error);
       if (error instanceof YnabRequestError && error.status === 404) {
-        const explanation = await explainMissingPlan(reader, planId);
+        const explanation = await explainMissingPlan(reader, planId, !isPlanLocked(env));
         if (explanation) {
           outcome = "plan_not_visible";
           message = explanation;
@@ -404,7 +404,7 @@ export async function dryRun(env: WorkerEnv, options: RunOptions = {}): Promise<
     return { ...common, calls: reader.calls, syncInProgress: false, evaluation, bills };
   } catch (error) {
     if (error instanceof YnabRequestError && error.status === 404) {
-      const explanation = await explainMissingPlan(reader, planId);
+      const explanation = await explainMissingPlan(reader, planId, !isPlanLocked(env));
       if (explanation) throw new Error(explanation);
     }
     throw error;
