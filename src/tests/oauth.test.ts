@@ -449,6 +449,78 @@ describe("Worker OAuth flow", () => {
     });
   });
 
+  describe("single-user gate", () => {
+    function githubSignsInAs(login: string) {
+      vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        githubCalls.push(url);
+        if (url === "https://github.com/login/oauth/access_token") return Response.json({ access_token: "gho_test" });
+        if (url === "https://api.github.com/user") return Response.json({ login, name: "Someone" });
+        throw new Error(`unexpected fetch ${url}`);
+      });
+    }
+
+    function tokens(env: any) {
+      return [...env.OAUTH_KV.store.keys()].filter((k: string) => k.startsWith("token:"));
+    }
+
+    function mcp(env: any, authorization?: string) {
+      return worker.fetch(
+        new Request(`${ORIGIN}/mcp`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            accept: "application/json, text/event-stream",
+            ...(authorization ? { authorization } : {}),
+          },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+        }),
+        env,
+        ctx,
+      );
+    }
+
+    it.each(["someone-else", `${OWNER}-evil`, OWNER.slice(0, -1), `x${OWNER}`, ""])(
+      "refuses GitHub login %j with a 403 and issues nothing",
+      async (login) => {
+        githubSignsInAs(login);
+        const env = makeEnv();
+        const { cookie, state } = await approveUpToGitHub(env, CLAUDE_CB);
+
+        const response = await callback(env, state, cookie);
+
+        expect(response.status).toBe(403);
+        expect(response.headers.get("location")).toBeNull();
+        expect(await response.text()).toContain("Access denied");
+        expect(grants(env)).toEqual([]);
+        expect(tokens(env)).toEqual([]);
+      },
+    );
+
+    it("admits ALLOWED_GITHUB_LOGIN in any letter case", async () => {
+      githubSignsInAs(OWNER.toUpperCase());
+      const env = makeEnv();
+      const { cookie, state } = await approveUpToGitHub(env, CLAUDE_CB);
+
+      expect((await callback(env, state, cookie)).status).toBe(302);
+      expect(grants(env)).toHaveLength(1);
+    });
+
+    it("serves /mcp only with an access token issued through sign-in", async () => {
+      const env = makeEnv();
+      expect((await mcp(env)).status).toBe(401);
+      expect((await mcp(env, "Bearer garbage")).status).toBe(401);
+      expect((await mcp(env, `Bearer ${OWNER}:forged-grant:forged-secret`)).status).toBe(401);
+
+      const { clientId, cookie, state } = await approveUpToGitHub(env, CLAUDE_CB);
+      const completed = await callback(env, state, cookie);
+      const code = new URL(completed.headers.get("location")!).searchParams.get("code")!;
+      const { access_token: accessToken } = (await (await exchange(env, clientId, CLAUDE_CB, code)).json()) as { access_token: string };
+
+      expect((await mcp(env, `Bearer ${accessToken}`)).status).toBe(200);
+    });
+  });
+
   describe.each(["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "ALLOWED_GITHUB_LOGIN"])("when %s is missing", (setting) => {
     let response: Response;
 

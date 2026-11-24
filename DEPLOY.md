@@ -15,7 +15,8 @@ so anyone admitted through the sign-in reaches the
 deployer's YNAB account, money, and every plan available to that token—not
 their own YNAB account.
 `ynab_list_plans` lists all of those plans, and a caller-supplied `planId`
-overrides the optional `YNAB_PLAN_ID` default. That matters: the tool set
+overrides the optional `YNAB_PLAN_ID` default, unless you
+[lock the server to one plan](#locking-to-one-plan). That matters: the tool set
 includes create, update and delete, so an unauthenticated endpoint would let
 anyone who finds the URL rewrite those plans.
 
@@ -270,6 +271,10 @@ npx wrangler secret put YNAB_PLAN_ID
 
 `YNAB_BUDGET_ID` is deprecated but still accepted as an alias; there is no
 removal date. Use `YNAB_PLAN_ID` for new deployments.
+
+`YNAB_PLAN_ID` is only a default: a tool call can still name another plan the
+token can see. To refuse every other plan, see
+[Locking to one plan](#locking-to-one-plan).
 
 Category suggestions are optional. To enable them, set the operator-owned
 TypeSafe credential as a Worker secret:
@@ -584,6 +589,21 @@ entirely rather than failing when called. The
 TypeSafe preview is registered as read-only and remains available in this mode
 only when both its feature flag and secret are configured. The auto-budget
 service stays in shadow mode, and its tools stay available.
+
+## Locking to one plan
+
+A YNAB Personal Access Token reaches every plan in the account, and YNAB has no
+way to limit one to a single plan. To make the server do it, set
+`YNAB_LOCK_PLAN` to `"true"` in `wrangler.jsonc` and `YNAB_PLAN_ID` to the
+plan's ID (with `npx wrangler secret put YNAB_PLAN_ID`), then redeploy:
+
+- A tool call naming any other plan, as `planId` or `budgetId`, is refused
+  before anything reaches YNAB. Naming the locked plan itself is fine.
+- `ynab_list_plans` lists only the locked plan.
+- When the token cannot see the locked plan, errors say so without naming the
+  plans it can see. The auto-budget service follows the same rule.
+- If `YNAB_PLAN_ID` is unset, or is YNAB's `last-used` or `default` alias,
+  which can point at a different plan over time, every plan is refused.
 
 ## Local development
 

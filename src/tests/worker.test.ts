@@ -80,6 +80,59 @@ describe("worker MCP handler", () => {
     await optedOut.close();
   });
 
+  it("mirrors the plan lock and clears it when the binding is absent", async () => {
+    vi.stubEnv("YNAB_LOCK_PLAN", "stale");
+
+    const locked = createServer({ ...env, YNAB_LOCK_PLAN: "true" });
+    expect(process.env.YNAB_LOCK_PLAN).toBe("true");
+    await locked.close();
+
+    const unlocked = createServer(env);
+    expect(process.env.YNAB_LOCK_PLAN).toBeUndefined();
+    await unlocked.close();
+  });
+
+  it("serves only the locked plan over MCP", async () => {
+    const LOCKED = "5ee4b298-b011-48d5-8343-3b3f50b442f5";
+    const lockEnv = { YNAB_PLAN_ID: LOCKED, YNAB_LOCK_PLAN: "true", YNAB_READ_ONLY: "true" };
+    const requested: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      requested.push(new URL(url).pathname);
+      if (new URL(url).pathname === "/v1/plans") {
+        return Response.json({
+          data: {
+            plans: [
+              { id: "fd7c1d9a-e5ba-4fe0-a926-6afb6836b9b0", name: "My Budget" },
+              { id: LOCKED, name: "2026" },
+              { id: "8531eaeb-158f-4e9a-9ec1-94948011627d", name: "Samuel's Plan" },
+            ],
+          },
+        });
+      }
+      return Response.json({ data: { accounts: [], server_knowledge: 1 } });
+    });
+    const callTool = async (name: string, args: Record<string, unknown>) =>
+      (await readResult(await call({ jsonrpc: "2.0", id: 7, method: "tools/call", params: { name, arguments: args } }, lockEnv))).result;
+
+    const listed = await callTool("ynab_list_plans", {});
+    expect(JSON.parse(listed.content[0].text)).toEqual([{ id: LOCKED, name: "2026" }]);
+
+    const beforeRefusal = requested.length;
+    const refused = await callTool("ynab_list_accounts", { planId: "8531eaeb-158f-4e9a-9ec1-94948011627d" });
+    expect(refused.isError).toBe(true);
+    expect(refused.content[0].text).toContain("is refused");
+    expect(requested).toHaveLength(beforeRefusal);
+
+    const allowed = await callTool("ynab_list_accounts", {});
+    expect(allowed.isError).toBeUndefined();
+
+    // Apart from listing plans, every YNAB request stayed inside the locked plan.
+    const planScoped = requested.filter((path) => path !== "/v1/plans");
+    expect(planScoped.length).toBeGreaterThan(0);
+    for (const path of planScoped) expect(path.startsWith(`/v1/plans/${LOCKED}/`)).toBe(true);
+  });
+
   it("responds to initialize over HTTP", async () => {
     const response = await call(initialize);
     expect(response.status).toBe(200);
@@ -183,6 +236,23 @@ describe("worker MCP handler", () => {
     expect(names).not.toContain("ynab_budget_summary");
     expect(names).not.toContain("ynab_create_transaction");
     expect(names).not.toContain("ynab_delete_transaction");
+  });
+
+  it("refuses a write tool called by name in read-only mode, without contacting YNAB", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const writeTools = tools.filter((tool) => tool.writes).map((tool) => tool.module.name);
+    expect(writeTools.length).toBeGreaterThan(0);
+
+    for (const name of writeTools) {
+      const response = await call(
+        { jsonrpc: "2.0", id: 8, method: "tools/call", params: { name, arguments: { planId: "plan", transactionId: "t1" } } },
+        { YNAB_READ_ONLY: "true" },
+      );
+      const result = await readResult(response);
+      expect(result.result, name).toBeUndefined();
+      expect(result.error?.message, name).toBe(`Tool ${name} not found`);
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("serves the auto-budget tools only with their database bound, read-only mode included", async () => {

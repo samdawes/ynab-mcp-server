@@ -490,6 +490,19 @@ describe("a configured plan the token cannot see", () => {
     expect(api.plans.getPlans).not.toHaveBeenCalled();
   });
 
+  it("names no other plan when the server is locked", async () => {
+    vi.stubEnv("YNAB_PLAN_ID", "configured-plan");
+    vi.stubEnv("YNAB_LOCK_PLAN", "true");
+    const result = await register(apiWithPlans([{ id: "real-plan", name: "Household" }]))
+      .get("ynab_list_accounts")!.callback({});
+
+    expect(result.isError).toBe(true);
+    const { plan_visibility_error: planVisibilityError } = JSON.parse(result.content[0].text);
+    expect(planVisibilityError).toContain("The configured plan configured-plan (YNAB_PLAN_ID) is not one of the plans");
+    expect(result.content[0].text).not.toContain("Household");
+    expect(result.content[0].text).not.toContain("real-plan");
+  });
+
   it("falls back to the original error when the plan list cannot be read", async () => {
     vi.stubEnv("YNAB_PLAN_ID", "configured-plan");
     const api = {
@@ -504,6 +517,32 @@ describe("a configured plan the token cannot see", () => {
     }
     // A failed lookup is not cached.
     expect(api.plans.getPlans).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("a server locked to one plan", () => {
+  const LOCKED = "locked-plan";
+
+  it("refuses every plan-scoped tool a different plan before calling YNAB", async () => {
+    vi.stubEnv("YNAB_AI_CATEGORIZATION", "true");
+    vi.stubEnv("TYPESAFE_API_KEY", "test-key");
+    vi.stubEnv("YNAB_PLAN_ID", LOCKED);
+    vi.stubEnv("YNAB_LOCK_PLAN", "true");
+    // Any property access on the API is a call that should not happen.
+    const touched: string[] = [];
+    const api = new Proxy({}, { get: (_target, prop) => { touched.push(String(prop)); return undefined; } }) as ynab.API;
+    const registered = register(api);
+    const planScoped = tools.filter((tool) => "planId" in tool.module.inputSchema);
+    expect(planScoped.length).toBeGreaterThan(20);
+
+    for (const tool of planScoped) {
+      for (const input of [{ planId: "other-plan" }, { budgetId: "other-plan" }]) {
+        const result = await registered.get(tool.module.name)!.callback(input);
+        expect(result.isError, tool.module.name).toBe(true);
+        expect(result.content[0].text, tool.module.name).toContain("is refused");
+      }
+    }
+    expect(touched).toEqual([]);
   });
 });
 

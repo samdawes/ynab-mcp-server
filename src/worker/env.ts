@@ -7,6 +7,12 @@ export interface WorkerEnv {
   /** Deprecated but still accepted compatibility alias; no removal date. */
   YNAB_BUDGET_ID?: string;
   /**
+   * Set to "true" to serve only the YNAB_PLAN_ID plan: other plan IDs are
+   * refused and ynab_list_plans names no other plan. Without a usable
+   * YNAB_PLAN_ID every plan is refused.
+   */
+  YNAB_LOCK_PLAN?: string;
+  /**
    * Cloudflare Access team domain (`<team>.cloudflareaccess.com`) and application
    * audience tag. Setting any `CF_ACCESS_*` value replaces the GitHub OAuth
    * below, and Access mode needs these two plus `CF_ACCESS_ALLOWED_EMAIL`.
